@@ -12,7 +12,6 @@ import {
   buildOutreachHtml,
   buildOutreachText
 } from "./email-templates.mjs";
-import { watchFollowUps } from "./outreach-followup.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, "..");
@@ -44,11 +43,15 @@ const testEmail = args.find((a) => a.startsWith("--test="))?.slice(7) ??
 const csvArg =
   args.find((a) => a.startsWith("--csv="))?.slice(6) ??
   (args.includes("--csv") ? args[args.indexOf("--csv") + 1] : null) ??
-  "C:/WFT-Institutions/aims-contacts-email-ready.csv";
+  path.join(ROOT, "data", "aims-contacts-email-ready.csv");
+const limitArg = args.find((a) => a.startsWith("--limit="))?.slice(8) ??
+  (args.includes("--limit") ? args[args.indexOf("--limit") + 1] : null);
+const LIMIT = limitArg ? Number(limitArg) : null;
+const skipSent = args.includes("--skip-sent");
 
-const CAMPAIGN_NAME = process.env.OUTREACH_CAMPAIGN ?? "AIMS AP TS KR Outreach";
+const CAMPAIGN_NAME = process.env.OUTREACH_CAMPAIGN ?? "AIMS India Outreach";
 const DEMO_URL = process.env.DEMO_URL ?? "https://demo.workflowtech.info";
-const THROTTLE_MS = Number(process.env.OUTREACH_THROTTLE_MS ?? 4000);
+const THROTTLE_MS = Number(process.env.OUTREACH_THROTTLE_MS ?? 30000);
 
 function hubUrl() {
   return (process.env.NEXT_PUBLIC_HUB_URL ?? "https://wftact.vercel.app").replace(/\/$/, "");
@@ -220,14 +223,32 @@ async function main() {
 
   const contacts = table.slice(1).filter((r) => r[emailIdx]?.includes("@"));
   const seenEmails = new Set();
-  const uniqueContacts = [];
+  let uniqueContacts = [];
   for (const row of contacts) {
     const email = row[emailIdx].trim().toLowerCase();
     if (seenEmails.has(email)) continue;
     seenEmails.add(email);
     uniqueContacts.push(row);
   }
-  console.log(`CSV: ${uniqueContacts.length} contacts`);
+
+  if (skipSent) {
+    const { data: alreadySent, error: skipErr } = await sb
+      .from("email_recipients")
+      .select("email")
+      .eq("status", "sent");
+    if (skipErr) throw skipErr;
+    const sentSet = new Set((alreadySent ?? []).map((r) => r.email.toLowerCase()));
+    const before = uniqueContacts.length;
+    uniqueContacts = uniqueContacts.filter((r) => !sentSet.has(r[emailIdx].trim().toLowerCase()));
+    console.log(`Skip sent: ${before - uniqueContacts.length} already sent, ${uniqueContacts.length} remaining`);
+  }
+
+  if (LIMIT != null && LIMIT > 0) {
+    uniqueContacts = uniqueContacts.slice(0, LIMIT);
+    console.log(`Limit: sending ${uniqueContacts.length} contact(s) this run`);
+  }
+
+  console.log(`CSV: ${uniqueContacts.length} contacts to send (one by one, ${THROTTLE_MS / 1000}s apart)`);
 
   const { data: campaign, error: campErr } = await sb
     .from("email_campaigns")
@@ -262,8 +283,8 @@ async function main() {
       });
       sent++;
       if (!dryRun) {
-        console.log(`Sent ${sent}/${uniqueContacts.length}: ${row[emailIdx]}`);
-        await sleep(THROTTLE_MS);
+        console.log(`Sent ${sent}/${uniqueContacts.length}: ${row[emailIdx]} — next in ${THROTTLE_MS / 1000}s`);
+        if (sent < uniqueContacts.length) await sleep(THROTTLE_MS);
       }
     } catch (e) {
       failed++;
@@ -274,6 +295,7 @@ async function main() {
   console.log(`Done. sent: ${sent}, failed: ${failed}, dry-run: ${dryRun}`);
 
   if (watchFollowups && !dryRun) {
+    const { watchFollowUps } = await import("./outreach-followup.mjs");
     const smtp = {
       dryRun: false,
       transporter: nodemailer.createTransport({

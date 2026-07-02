@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "send:emails": "node scripts/send-outreach-emails.mjs",
+    "send:emails": "node scripts/send-outreach-emails.mjs --skip-sent",
+    "send:emails:one": "node scripts/send-outreach-emails.mjs --skip-sent --limit=1",
     "send:emails:dry": "node scripts/send-outreach-emails.mjs --dry-run",
     "send:emails:test": "node scripts/send-outreach-emails.mjs --test",
     "send:campaign": "node scripts/send-outreach-emails.mjs --watch-followups",
@@ -22,6 +23,7 @@
     "@supabase/supabase-js": "^2.49.1",
     "next": "^15.2.5",
     "nodemailer": "^6.10.0",
+    "imapflow": "^1.0.184",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

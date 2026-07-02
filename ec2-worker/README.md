@@ -6,11 +6,9 @@ The **hub dashboard** stays on Vercel. Only this small worker runs on EC2.
 
 ## What it does
 
-Every 5 minutes:
+**Follow up watcher** (always on): every 5 minutes sends Mail 2/3 and nurture drip.
 
-1. Reads Supabase (who opened mail 45+ min ago, no follow up yet)
-2. Sends follow up via Titan SMTP
-3. Logs to console
+**Campaign sender** (one time): sends Mail 1 to the contact list, one by one, on EC2 so your PC can stay off.
 
 ## Deploy on KIET production EC2
 
@@ -36,6 +34,20 @@ docker compose logs -f followup-watcher
 
 You should see: `Follow up watcher started`
 
+## Send Mail 1 campaign on EC2 (643 contacts, one by one)
+
+After `git pull` on EC2:
+
+```bash
+cd ~/wftact/ec2-worker
+docker compose --profile campaign up campaign-sender -d
+docker compose logs -f campaign-sender
+```
+
+Uses `data/aims-contacts-email-ready.csv` in the repo. Skips anyone already marked sent in Supabase.
+
+Stop watching logs with Ctrl+C. Container exits when done.
+
 ## Commands
 
 ```bash
@@ -58,5 +70,5 @@ docker compose restart
 
 - Uses very little RAM (Node script only)
 - Safe to run on KIET EC2 alongside kieterp Docker stack
-- Does **not** send first outreach emails — only follow ups
-- First emails still run once from your PC: `npm run send:campaign`
+- **Mail 1 campaign** runs on EC2 via `docker compose --profile campaign up campaign-sender -d`
+- Follow ups and nurture run 24/7 in `wftact-followup` container

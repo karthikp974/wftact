@@ -9,3 +9,16 @@ services:
       - .env
     command: sh -c "npm install --omit=dev && node scripts/send-followup-emails.mjs --watch"
     restart: unless-stopped
+
+  campaign-sender:
+    image: node:22-alpine
+    container_name: wftact-campaign
+    working_dir: /app
+    volumes:
+      - ..:/app
+    env_file:
+      - .env
+    command: sh -c "npm install --omit=dev && node scripts/send-outreach-emails.mjs --skip-sent"
+    restart: "no"
+    profiles:
+      - campaign
