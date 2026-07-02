@@ -57,7 +57,8 @@ export async function GET(request: NextRequest) {
       not_opened: segments.not_opened.length,
       opened_no_demo: segments.opened_no_demo.length,
       opened_with_demo: segments.opened_with_demo.length,
-      follow_up_not_opened: segments.follow_up_not_opened.length
+      follow_up_2_not_opened: segments.follow_up_2_not_opened.length,
+      follow_up_3_not_opened: segments.follow_up_3_not_opened.length
     },
     segments
   });

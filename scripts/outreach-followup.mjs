@@ -1,13 +1,13 @@
 /**
  * Follow up email logic (pure code, no Vercel needed).
  */
-import nodemailer from "nodemailer";
 import {
   FOLLOWUP_SUBJECT_DEMO,
   FOLLOWUP_SUBJECT_NO_DEMO,
   buildFollowUpHtml,
   buildFollowUpText
 } from "./email-templates.mjs";
+import { processNurture } from "./outreach-nurture.mjs";
 
 const FOLLOWUP_DELAY_MS = Number(process.env.FOLLOWUP_DELAY_MS ?? 45 * 60 * 1000);
 const DEMO_URL = process.env.DEMO_URL ?? "https://demo.workflowtech.info";
@@ -80,7 +80,13 @@ export async function processFollowUps(sb, { dryRun = false, transporter = null,
         html
       });
       const now = new Date().toISOString();
-      await sb.from("email_recipients").update({ follow_up_sent_at: now }).eq("id", r.id);
+      await sb
+        .from("email_recipients")
+        .update({
+          follow_up_sent_at: now,
+          follow_up_type: visitedDemo ? "visited_demo" : "no_demo"
+        })
+        .eq("id", r.id);
       await sb.from("email_events").insert({ recipient_id: r.id, kind: "follow_up" });
       sent++;
       console.log(`Follow up sent: ${r.email} (demo visited: ${visitedDemo})`);
@@ -107,8 +113,9 @@ export async function watchFollowUps(sb, smtp) {
 
   for (;;) {
     const result = await processFollowUps(sb, smtp);
-    if (result.sent > 0) {
-      console.log(`Batch done: ${result.sent} follow up(s) sent.`);
+    const nurture = await processNurture(sb, smtp);
+    if (result.sent > 0 || nurture.sent > 0) {
+      console.log(`Batch done: ${result.sent} follow up(s), ${nurture.sent} nurture(s).`);
     } else {
       const now = new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" });
       console.log(`[${now} IST] No follow ups due yet.`);

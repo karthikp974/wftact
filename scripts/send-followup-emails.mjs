@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import nodemailer from "nodemailer";
 import { createClient } from "@supabase/supabase-js";
 import { processFollowUps, watchFollowUps } from "./outreach-followup.mjs";
+import { processNurture } from "./outreach-nurture.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, "..");
@@ -71,7 +72,11 @@ async function main() {
   }
 
   const result = await processFollowUps(sb, smtp);
-  console.log(result.sent ? `Follow ups sent: ${result.sent}` : "No follow ups due");
+  const nurture = await processNurture(sb, smtp);
+  const parts = [];
+  if (result.sent) parts.push(`Follow ups sent: ${result.sent}`);
+  if (nurture.sent) parts.push(`Nurture sent: ${nurture.sent}`);
+  console.log(parts.length ? parts.join(" · ") : "No follow ups or nurture due");
 }
 
 main().catch((e) => {

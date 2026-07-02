@@ -109,9 +109,15 @@ export type EmailRecipientRow = {
   open_count: number | null;
   last_open_at: string | null;
   follow_up_sent_at: string | null;
+  follow_up_type: string | null;
   follow_up_opened_at: string | null;
   follow_up_open_count: number | null;
   follow_up_last_open_at: string | null;
+  nurture_step: number | null;
+  last_nurture_sent_at: string | null;
+  nurture_opened_at: string | null;
+  nurture_open_count: number | null;
+  nurture_last_open_at: string | null;
   status: string;
 };
 
@@ -137,12 +143,18 @@ export type MailRow = {
   demo_first_at: string | null;
   demo_last_at: string | null;
   follow_up_sent_at: string | null;
+  follow_up_type: string | null;
+  follow_up_label: string | null;
   follow_up_due_at: string | null;
   follow_up_time_left_sec: number | null;
   follow_up_opened_at: string | null;
   follow_up_last_open_at: string | null;
   follow_up_open_count: number;
   follow_up_opened: boolean;
+  nurture_step: number;
+  last_nurture_sent_at: string | null;
+  nurture_opened: boolean;
+  nurture_last_open_at: string | null;
   post_follow_up_demo: boolean;
   engagement_label: string;
 };
@@ -150,6 +162,13 @@ export type MailRow = {
 function istDate(iso: string | null) {
   if (!iso) return null;
   return new Date(iso).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+}
+
+function followUpLabel(type: string | null, demoVisited: boolean) {
+  if (type === "visited_demo") return "Mail 3 (opened + demo)";
+  if (type === "no_demo") return "Mail 2 (opened, no demo)";
+  if (demoVisited) return "Mail 3 (opened + demo)";
+  return "Mail 2 (opened, no demo)";
 }
 
 export function buildMailRow(
@@ -183,6 +202,9 @@ export function buildMailRow(
     else engagementLabel = "Follow up sent, not opened";
   }
 
+  const followUpType =
+    recipient.follow_up_type ?? (demoAll.visited ? "visited_demo" : "no_demo");
+
   return {
     mail_no: mailNo,
     id: recipient.id,
@@ -205,12 +227,20 @@ export function buildMailRow(
     demo_first_at: demoAll.firstVisitAt,
     demo_last_at: demoAll.lastVisitAt,
     follow_up_sent_at: recipient.follow_up_sent_at,
+    follow_up_type: followUpSent ? followUpType : null,
+    follow_up_label: followUpSent ? followUpLabel(recipient.follow_up_type, demoAll.visited) : null,
     follow_up_due_at: followUpDueAt,
     follow_up_time_left_sec: followUpTimeLeftSec,
     follow_up_opened_at: recipient.follow_up_opened_at,
     follow_up_last_open_at: recipient.follow_up_last_open_at,
     follow_up_open_count: recipient.follow_up_open_count ?? 0,
     follow_up_opened: followUpOpened,
+    nurture_step: recipient.nurture_step ?? 0,
+    last_nurture_sent_at: recipient.last_nurture_sent_at,
+    nurture_opened: !!(
+      recipient.nurture_opened_at || (recipient.nurture_open_count ?? 0) > 0
+    ),
+    nurture_last_open_at: recipient.nurture_last_open_at,
     post_follow_up_demo: demoAfterFollowUp.visited,
     engagement_label: engagementLabel
   };
@@ -222,12 +252,26 @@ export function filterBySentDate(rows: MailRow[], dateIst: string | null) {
 }
 
 export function segmentRows(rows: MailRow[]) {
+  const followUp2NotOpened = rows.filter(
+    (r) =>
+      r.follow_up_sent_at &&
+      !r.follow_up_opened &&
+      (r.follow_up_type === "no_demo" || (!r.follow_up_type && !r.demo_visited))
+  );
+  const followUp3NotOpened = rows.filter(
+    (r) =>
+      r.follow_up_sent_at &&
+      !r.follow_up_opened &&
+      (r.follow_up_type === "visited_demo" || (!r.follow_up_type && r.demo_visited))
+  );
+
   return {
     all_sent: rows.filter((r) => r.sent_at),
     not_opened: rows.filter((r) => r.sent_at && !r.mail_opened),
     opened_no_demo: rows.filter((r) => r.mail_opened && !r.demo_visited),
     opened_with_demo: rows.filter((r) => r.mail_opened && r.demo_visited),
-    follow_up_not_opened: rows.filter((r) => r.follow_up_sent_at && !r.follow_up_opened)
+    follow_up_2_not_opened: followUp2NotOpened,
+    follow_up_3_not_opened: followUp3NotOpened
   };
 }
 

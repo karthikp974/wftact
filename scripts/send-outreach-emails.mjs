@@ -142,12 +142,11 @@ async function sendOne({ sb, transporter, fromName, fromAddress, row, header, ca
 
   const html = buildOutreachHtml({
     name,
-    institution,
     recipientId: recipient.id,
     demoUrl: DEMO_URL,
     hubUrl: hubUrl()
   });
-  const text = buildOutreachText({ name, institution, recipientId: recipient.id, demoUrl: DEMO_URL });
+  const text = buildOutreachText({ name, recipientId: recipient.id, demoUrl: DEMO_URL });
 
   if (dryRunMode) {
     console.log(`[dry-run] ${email} | ${name} | ${institution} | pixel=${hubUrl()}/api/track/open/${recipient.id}`);

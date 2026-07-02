@@ -14,37 +14,49 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     const sb = getSupabaseAdmin();
     const now = new Date().toISOString();
 
-    const { data: recipient } = await sb
+    const { data: recipient, error: loadErr } = await sb
       .from("email_recipients")
-      .select("id, open_count, follow_up_open_count")
+      .select("id, open_count, follow_up_open_count, nurture_open_count")
       .eq("id", id)
       .maybeSingle();
 
+    if (loadErr) throw loadErr;
+
     if (recipient) {
-      if (kind === "follow_up") {
+      if (kind === "nurture") {
+        await sb.from("email_events").insert({ recipient_id: id, kind: "nurture_open" });
+        const patch: Record<string, string | number> = {
+          nurture_last_open_at: now,
+          nurture_open_count: (recipient.nurture_open_count ?? 0) + 1
+        };
+        if ((recipient.nurture_open_count ?? 0) === 0) {
+          patch.nurture_opened_at = now;
+        }
+        await sb.from("email_recipients").update(patch).eq("id", id);
+      } else if (kind === "follow_up") {
         await sb.from("email_events").insert({ recipient_id: id, kind: "follow_up_open" });
-        await sb
-          .from("email_recipients")
-          .update({
-            follow_up_opened_at: (recipient.follow_up_open_count ?? 0) === 0 ? now : undefined,
-            follow_up_last_open_at: now,
-            follow_up_open_count: (recipient.follow_up_open_count ?? 0) + 1
-          })
-          .eq("id", id);
+        const patch: Record<string, string | number> = {
+          follow_up_last_open_at: now,
+          follow_up_open_count: (recipient.follow_up_open_count ?? 0) + 1
+        };
+        if ((recipient.follow_up_open_count ?? 0) === 0) {
+          patch.follow_up_opened_at = now;
+        }
+        await sb.from("email_recipients").update(patch).eq("id", id);
       } else {
         await sb.from("email_events").insert({ recipient_id: id, kind: "open" });
-        await sb
-          .from("email_recipients")
-          .update({
-            opened_at: (recipient.open_count ?? 0) === 0 ? now : undefined,
-            last_open_at: now,
-            open_count: (recipient.open_count ?? 0) + 1
-          })
-          .eq("id", id);
+        const patch: Record<string, string | number> = {
+          last_open_at: now,
+          open_count: (recipient.open_count ?? 0) + 1
+        };
+        if ((recipient.open_count ?? 0) === 0) {
+          patch.opened_at = now;
+        }
+        await sb.from("email_recipients").update(patch).eq("id", id);
       }
     }
-  } catch {
-    // still return pixel
+  } catch (e) {
+    console.error("[track/open]", e);
   }
 
   return new NextResponse(PIXEL, {
