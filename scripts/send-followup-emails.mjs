@@ -1,18 +1,16 @@
 #!/usr/bin/env node
 /**
- * Send follow up emails 45 minutes after first open (run via cron or manually).
+ * Send follow up emails 45 minutes after first open.
+ *
+ *   node scripts/send-followup-emails.mjs          # run once now
+ *   node scripts/send-followup-emails.mjs --watch  # keep watching (no Vercel)
  */
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import nodemailer from "nodemailer";
 import { createClient } from "@supabase/supabase-js";
-import {
-  FOLLOWUP_SUBJECT_DEMO,
-  FOLLOWUP_SUBJECT_NO_DEMO,
-  buildFollowUpHtml,
-  buildFollowUpText
-} from "./email-templates.mjs";
+import { processFollowUps, watchFollowUps } from "./outreach-followup.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, "..");
@@ -36,14 +34,8 @@ function loadEnvFile(filePath) {
 loadEnvFile(path.join(ROOT, ".env.local"));
 loadEnvFile(path.join(ROOT, ".env"));
 
-const FOLLOWUP_DELAY_MS = Number(process.env.FOLLOWUP_DELAY_MS ?? 45 * 60 * 1000);
-const DEMO_URL = process.env.DEMO_URL ?? "https://demo.workflowtech.info";
 const dryRun = process.argv.includes("--dry-run");
-
-function outreachIdFromMeta(meta) {
-  const id = meta?.outreach_id;
-  return typeof id === "string" && id.trim() ? id.trim() : null;
-}
+const watch = process.argv.includes("--watch");
 
 async function main() {
   const sbUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -59,83 +51,27 @@ async function main() {
   if (!dryRun && (!smtpUser || !smtpPass)) throw new Error("Missing SMTP env");
 
   const sb = createClient(sbUrl, sbKey);
-  const cutoff = new Date(Date.now() - FOLLOWUP_DELAY_MS).toISOString();
+  const smtp = {
+    dryRun,
+    transporter: dryRun
+      ? null
+      : nodemailer.createTransport({
+          host: smtpHost,
+          port: smtpPort,
+          secure: smtpPort === 465,
+          auth: { user: smtpUser, pass: smtpPass }
+        }),
+    fromName,
+    fromAddress
+  };
 
-  const { data: recipients, error } = await sb
-    .from("email_recipients")
-    .select("*")
-    .eq("status", "sent")
-    .not("opened_at", "is", null)
-    .is("follow_up_sent_at", null)
-    .lte("opened_at", cutoff);
-
-  if (error) throw error;
-  if (!recipients?.length) {
-    console.log("No follow ups due");
+  if (watch) {
+    await watchFollowUps(sb, smtp);
     return;
   }
 
-  const { data: activity } = await sb
-    .from("activity_events")
-    .select("kind, path, meta, created_at")
-    .eq("site_key", "demo");
-
-  const visitedSet = new Set();
-  for (const row of activity ?? []) {
-    const oid = outreachIdFromMeta(row.meta);
-    if (oid) visitedSet.add(oid);
-  }
-
-  const transporter = dryRun
-    ? null
-    : nodemailer.createTransport({
-        host: smtpHost,
-        port: smtpPort,
-        secure: smtpPort === 465,
-        auth: { user: smtpUser, pass: smtpPass }
-      });
-
-  let sent = 0;
-  for (const r of recipients) {
-    const visitedDemo = visitedSet.has(r.id);
-    const subject = visitedDemo ? FOLLOWUP_SUBJECT_DEMO : FOLLOWUP_SUBJECT_NO_DEMO;
-    const html = buildFollowUpHtml({
-      name: r.name,
-      recipientId: r.id,
-      demoUrl: DEMO_URL,
-      visitedDemo
-    });
-    const text = buildFollowUpText({
-      name: r.name,
-      recipientId: r.id,
-      demoUrl: DEMO_URL,
-      visitedDemo
-    });
-
-    if (dryRun) {
-      console.log(`[dry-run] follow up → ${r.email} visitedDemo=${visitedDemo}`);
-      continue;
-    }
-
-    try {
-      await transporter.sendMail({
-        from: `"${fromName}" <${fromAddress}>`,
-        to: r.email,
-        subject,
-        text,
-        html
-      });
-      const now = new Date().toISOString();
-      await sb.from("email_recipients").update({ follow_up_sent_at: now }).eq("id", r.id);
-      await sb.from("email_events").insert({ recipient_id: r.id, kind: "follow_up" });
-      sent++;
-      console.log(`Follow up sent: ${r.email} (demo: ${visitedDemo})`);
-    } catch (e) {
-      console.error(`Follow up failed ${r.email}:`, e instanceof Error ? e.message : e);
-    }
-  }
-
-  console.log(`Follow ups sent: ${sent}`);
+  const result = await processFollowUps(sb, smtp);
+  console.log(result.sent ? `Follow ups sent: ${result.sent}` : "No follow ups due");
 }
 
 main().catch((e) => {

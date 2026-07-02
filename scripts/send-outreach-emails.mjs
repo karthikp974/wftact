@@ -12,6 +12,7 @@ import {
   buildOutreachHtml,
   buildOutreachText
 } from "./email-templates.mjs";
+import { watchFollowUps } from "./outreach-followup.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, "..");
@@ -37,6 +38,7 @@ loadEnvFile(path.join(ROOT, ".env"));
 
 const args = process.argv.slice(2);
 const dryRun = args.includes("--dry-run");
+const watchFollowups = args.includes("--watch-followups");
 const testEmail = args.find((a) => a.startsWith("--test="))?.slice(7) ??
   (args.includes("--test") ? args[args.indexOf("--test") + 1] : null);
 const csvArg =
@@ -271,6 +273,21 @@ async function main() {
   }
 
   console.log(`Done. sent: ${sent}, failed: ${failed}, dry-run: ${dryRun}`);
+
+  if (watchFollowups && !dryRun) {
+    const smtp = {
+      dryRun: false,
+      transporter: nodemailer.createTransport({
+        host: smtpHost,
+        port: smtpPort,
+        secure: smtpPort === 465,
+        auth: { user: smtpUser, pass: smtpPass }
+      }),
+      fromName,
+      fromAddress
+    };
+    await watchFollowUps(sb, smtp);
+  }
 }
 
 main().catch((e) => {

@@ -11,7 +11,9 @@
     "send:emails": "node scripts/send-outreach-emails.mjs",
     "send:emails:dry": "node scripts/send-outreach-emails.mjs --dry-run",
     "send:emails:test": "node scripts/send-outreach-emails.mjs --test",
+    "send:campaign": "node scripts/send-outreach-emails.mjs --watch-followups",
     "send:followup": "node scripts/send-followup-emails.mjs",
+    "send:followup:watch": "node scripts/send-followup-emails.mjs --watch",
     "send:followup:dry": "node scripts/send-followup-emails.mjs --dry-run",
     "setup:schema": "node scripts/apply-schema.mjs",
     "setup:outreach": "node scripts/apply-outreach-migration.mjs"
