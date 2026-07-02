@@ -1,16 +1,17 @@
 #!/usr/bin/env node
 /**
- * Send outreach emails via Titan SMTP + log to Supabase + open tracking pixel.
- *
- * Usage:
- *   node scripts/send-outreach-emails.mjs --csv "C:/WFT-Institutions/aims-contacts-ap-ts-kr.csv"
- *   node scripts/send-outreach-emails.mjs --dry-run
+ * Send outreach emails via Titan SMTP + open tracking + personalized demo links.
  */
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import nodemailer from "nodemailer";
 import { createClient } from "@supabase/supabase-js";
+import {
+  OUTREACH_SUBJECT,
+  buildOutreachHtml,
+  buildOutreachText
+} from "./email-templates.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, "..");
@@ -36,17 +37,19 @@ loadEnvFile(path.join(ROOT, ".env"));
 
 const args = process.argv.slice(2);
 const dryRun = args.includes("--dry-run");
-const csvArg = args.find((a) => a.startsWith("--csv="))?.slice(6) ??
+const testEmail = args.find((a) => a.startsWith("--test="))?.slice(7) ??
+  (args.includes("--test") ? args[args.indexOf("--test") + 1] : null);
+const csvArg =
+  args.find((a) => a.startsWith("--csv="))?.slice(6) ??
   (args.includes("--csv") ? args[args.indexOf("--csv") + 1] : null) ??
   "C:/WFT-Institutions/aims-contacts-email-ready.csv";
 
-const SUBJECT = process.env.OUTREACH_SUBJECT ?? "Live Demo — College ERP for Your Institution";
-const CAMPAIGN_NAME = process.env.OUTREACH_CAMPAIGN ?? "AIMS AP-TS-KR Outreach";
+const CAMPAIGN_NAME = process.env.OUTREACH_CAMPAIGN ?? "AIMS AP TS KR Outreach";
 const DEMO_URL = process.env.DEMO_URL ?? "https://demo.workflowtech.info";
 const THROTTLE_MS = Number(process.env.OUTREACH_THROTTLE_MS ?? 4000);
 
 function hubUrl() {
-  return (process.env.NEXT_PUBLIC_HUB_URL ?? "http://localhost:3000").replace(/\/$/, "");
+  return (process.env.NEXT_PUBLIC_HUB_URL ?? "https://wftact.vercel.app").replace(/\/$/, "");
 }
 
 function parseCsv(text) {
@@ -107,33 +110,60 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-function buildHtml({ name, institution, recipientId }) {
-  const pixel = `${hubUrl()}/api/track/open/${recipientId}`;
-  const greeting = name ? `Dear ${name},` : "Dear Sir/Madam,";
-  return `<!DOCTYPE html>
-<html><body style="font-family:Segoe UI,Arial,sans-serif;color:#111;line-height:1.5;max-width:640px">
-<p>${greeting}</p>
-<p>We invite you to explore our <strong>live College ERP demo</strong> built for management colleges and institutions.</p>
-<p><a href="${DEMO_URL}" style="display:inline-block;background:#1e5eff;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600">Open Live Demo</a></p>
-<p style="margin-top:16px"><strong>URL:</strong> <a href="${DEMO_URL}">${DEMO_URL}</a><br/>
-<strong>Demo login:</strong> admin / Admin@12345</p>
-${institution ? `<p style="color:#555;font-size:14px">Institution: ${institution}</p>` : ""}
-<p style="margin-top:24px">Regards,<br/><strong>WorkflowTech</strong><br/>College ERP Solutions</p>
-<img src="${pixel}" width="1" height="1" alt="" style="display:block;border:0;outline:none;width:1px;height:1px;opacity:0" />
-</body></html>`;
-}
+async function sendOne({ sb, transporter, fromName, fromAddress, row, header, campaignId, dryRunMode }) {
+  const nameIdx = header.indexOf("name");
+  const emailIdx = header.indexOf("email");
+  const instIdx = header.indexOf("institution");
+  const stateIdx = header.indexOf("state");
+  const phoneIdx = header.indexOf("mobile");
 
-function buildText({ name, institution }) {
-  const greeting = name ? `Dear ${name},` : "Dear Sir/Madam,";
-  return `${greeting}
+  const email = row[emailIdx].trim().toLowerCase();
+  const name = nameIdx >= 0 ? row[nameIdx]?.trim() : "";
+  const institution = instIdx >= 0 ? row[instIdx]?.trim() : "";
+  const state = stateIdx >= 0 ? row[stateIdx]?.trim() : "";
+  const phone = phoneIdx >= 0 ? row[phoneIdx]?.trim() : "";
 
-We invite you to explore our live College ERP demo.
+  const { data: recipient, error: recErr } = await sb
+    .from("email_recipients")
+    .insert({
+      campaign_id: campaignId,
+      email,
+      name: name || null,
+      institution: institution || null,
+      state: state || null,
+      phone: phone || null,
+      status: "pending"
+    })
+    .select("id")
+    .single();
+  if (recErr) throw recErr;
 
-URL: ${DEMO_URL}
-Demo login: admin / Admin@12345
-${institution ? `Institution: ${institution}\n` : ""}
-Regards,
-WorkflowTech`;
+  const html = buildOutreachHtml({
+    name,
+    institution,
+    recipientId: recipient.id,
+    demoUrl: DEMO_URL,
+    hubUrl: hubUrl()
+  });
+  const text = buildOutreachText({ name, institution, recipientId: recipient.id, demoUrl: DEMO_URL });
+
+  if (dryRunMode) {
+    console.log(`[dry-run] ${email} | ${name} | ${institution} | pixel=${hubUrl()}/api/track/open/${recipient.id}`);
+    await sb.from("email_recipients").update({ status: "dry-run" }).eq("id", recipient.id);
+    return { ok: true };
+  }
+
+  await transporter.sendMail({
+    from: `"${fromName}" <${fromAddress}>`,
+    to: email,
+    subject: OUTREACH_SUBJECT,
+    text,
+    html
+  });
+  const now = new Date().toISOString();
+  await sb.from("email_recipients").update({ status: "sent", sent_at: now }).eq("id", recipient.id);
+  await sb.from("email_events").insert({ recipient_id: recipient.id, kind: "sent" });
+  return { ok: true };
 }
 
 async function main() {
@@ -146,17 +176,45 @@ async function main() {
   const fromName = process.env.EMAIL_FROM_NAME ?? "WorkflowTech";
   const fromAddress = process.env.EMAIL_FROM_ADDRESS ?? smtpUser;
 
-  if (!sbUrl || !sbKey) throw new Error("Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local");
-  if (!dryRun && (!smtpUser || !smtpPass)) throw new Error("Set SMTP_USER and SMTP_PASS (Titan) in .env.local");
+  if (!sbUrl || !sbKey) throw new Error("Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY");
+  if (!dryRun && !testEmail && (!smtpUser || !smtpPass)) throw new Error("Set SMTP_USER and SMTP_PASS");
+
+  const sb = createClient(sbUrl, sbKey);
+
+  if (testEmail) {
+    const { data: campaign, error: campErr } = await sb
+      .from("email_campaigns")
+      .insert({ name: "Test send", subject: OUTREACH_SUBJECT, from_address: fromAddress })
+      .select("id")
+      .single();
+    if (campErr) throw campErr;
+
+    const transporter = nodemailer.createTransport({
+      host: smtpHost,
+      port: smtpPort,
+      secure: smtpPort === 465,
+      auth: { user: smtpUser, pass: smtpPass }
+    });
+
+    await sendOne({
+      sb,
+      transporter,
+      fromName,
+      fromAddress,
+      row: ["Test User", testEmail, "Test Institution", "9999999999"],
+      header: ["name", "email", "institution", "mobile"],
+      campaignId: campaign.id,
+      dryRunMode: false
+    });
+    console.log(`Test email sent to ${testEmail}`);
+    return;
+  }
 
   if (!fs.existsSync(csvArg)) throw new Error(`CSV not found: ${csvArg}`);
 
   const table = parseCsv(fs.readFileSync(csvArg, "utf8"));
   const header = table[0].map((h) => h.toLowerCase());
-  const nameIdx = header.indexOf("name");
   const emailIdx = header.indexOf("email");
-  const instIdx = header.indexOf("institution");
-  const stateIdx = header.indexOf("state");
   if (emailIdx < 0) throw new Error("CSV must have Email column");
 
   const contacts = table.slice(1).filter((r) => r[emailIdx]?.includes("@"));
@@ -164,19 +222,15 @@ async function main() {
   const uniqueContacts = [];
   for (const row of contacts) {
     const email = row[emailIdx].trim().toLowerCase();
-    if (seenEmails.has(email)) {
-      console.warn(`Skip duplicate in CSV: ${email}`);
-      continue;
-    }
+    if (seenEmails.has(email)) continue;
     seenEmails.add(email);
     uniqueContacts.push(row);
   }
-  console.log(`CSV: ${csvArg} — ${uniqueContacts.length} contacts (${contacts.length - uniqueContacts.length} duplicates skipped)`);
+  console.log(`CSV: ${uniqueContacts.length} contacts`);
 
-  const sb = createClient(sbUrl, sbKey);
   const { data: campaign, error: campErr } = await sb
     .from("email_campaigns")
-    .insert({ name: CAMPAIGN_NAME, subject: SUBJECT, from_address: fromAddress })
+    .insert({ name: CAMPAIGN_NAME, subject: OUTREACH_SUBJECT, from_address: fromAddress })
     .select("id")
     .single();
   if (campErr) throw campErr;
@@ -194,58 +248,29 @@ async function main() {
   let failed = 0;
 
   for (const row of uniqueContacts) {
-    const email = row[emailIdx].trim().toLowerCase();
-    const name = nameIdx >= 0 ? row[nameIdx]?.trim() : "";
-    const institution = instIdx >= 0 ? row[instIdx]?.trim() : "";
-    const state = stateIdx >= 0 ? row[stateIdx]?.trim() : "";
-
-    const { data: recipient, error: recErr } = await sb
-      .from("email_recipients")
-      .insert({
-        campaign_id: campaign.id,
-        email,
-        name: name || null,
-        institution: institution || null,
-        state: state || null,
-        status: "pending"
-      })
-      .select("id")
-      .single();
-    if (recErr) {
-      console.error(`Skip ${email}:`, recErr.message);
-      failed++;
-      continue;
-    }
-
-    if (dryRun) {
-      console.log(`[dry-run] Would send to ${email} (${name}) pixel=${hubUrl()}/api/track/open/${recipient.id}`);
-      await sb.from("email_recipients").update({ status: "dry-run" }).eq("id", recipient.id);
-      continue;
-    }
-
     try {
-      await transporter.sendMail({
-        from: `"${fromName}" <${fromAddress}>`,
-        to: email,
-        subject: SUBJECT,
-        text: buildText({ name, institution }),
-        html: buildHtml({ name, institution, recipientId: recipient.id })
+      await sendOne({
+        sb,
+        transporter,
+        fromName,
+        fromAddress,
+        row,
+        header,
+        campaignId: campaign.id,
+        dryRunMode: dryRun
       });
-      const now = new Date().toISOString();
-      await sb.from("email_recipients").update({ status: "sent", sent_at: now }).eq("id", recipient.id);
-      await sb.from("email_events").insert({ recipient_id: recipient.id, kind: "sent" });
       sent++;
-      console.log(`Sent ${sent}/${uniqueContacts.length}: ${email}`);
-      await sleep(THROTTLE_MS);
+      if (!dryRun) {
+        console.log(`Sent ${sent}/${uniqueContacts.length}: ${row[emailIdx]}`);
+        await sleep(THROTTLE_MS);
+      }
     } catch (e) {
       failed++;
-      const msg = e instanceof Error ? e.message : String(e);
-      await sb.from("email_recipients").update({ status: "failed", error_message: msg }).eq("id", recipient.id);
-      console.error(`Failed ${email}:`, msg);
+      console.error(`Failed ${row[emailIdx]}:`, e instanceof Error ? e.message : e);
     }
   }
 
-  console.log(`Done. Campaign ${campaign.id} — sent: ${sent}, failed: ${failed}, dry-run: ${dryRun}`);
+  console.log(`Done. sent: ${sent}, failed: ${failed}, dry-run: ${dryRun}`);
 }
 
 main().catch((e) => {

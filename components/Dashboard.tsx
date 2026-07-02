@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import ActivityDetailModal from "@/components/ActivityDetailModal";
+import OutreachReportModal, { type OutreachRow } from "@/components/OutreachReportModal";
 import {
   ActivityList,
   DayHourTable,
@@ -64,6 +65,34 @@ export default function Dashboard() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<DetailView | null>(null);
+  const [outreachOpen, setOutreachOpen] = useState(false);
+  const [outreachRows, setOutreachRows] = useState<OutreachRow[]>([]);
+  const [outreachSummary, setOutreachSummary] = useState({
+    mail_opened: 0,
+    demo_visited: 0,
+    follow_up_sent: 0
+  });
+  const [outreachLoading, setOutreachLoading] = useState(false);
+
+  const loadOutreach = useCallback(async () => {
+    setOutreachLoading(true);
+    try {
+      const res = await fetch("/api/email/outreach-report");
+      if (!res.ok) throw new Error("Failed to load outreach report");
+      const data = await res.json();
+      setOutreachRows(data.rows ?? []);
+      setOutreachSummary(data.summary ?? { mail_opened: 0, demo_visited: 0, follow_up_sent: 0 });
+    } catch {
+      setOutreachRows([]);
+    } finally {
+      setOutreachLoading(false);
+    }
+  }, []);
+
+  const openOutreach = useCallback(() => {
+    setOutreachOpen(true);
+    void loadOutreach();
+  }, [loadOutreach]);
 
   const load = useCallback(async () => {
     setError("");
@@ -116,6 +145,13 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen pb-8">
+      <OutreachReportModal
+        open={outreachOpen}
+        onClose={() => setOutreachOpen(false)}
+        rows={outreachRows}
+        summary={outreachSummary}
+        loading={outreachLoading}
+      />
       <ActivityDetailModal
         open={detail !== null}
         onClose={() => setDetail(null)}
@@ -188,7 +224,12 @@ export default function Dashboard() {
         </section>
 
         <section>
-          <h2 className="section-title">Email</h2>
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h2 className="section-title mb-0">Email</h2>
+            <button type="button" className="btn-outline px-3 py-1.5 text-sm" onClick={() => openOutreach()}>
+              Outreach report
+            </button>
+          </div>
           <div className="grid grid-cols-3 gap-3">
             <StatCard label="Opened" value={stats.email.opened} />
             <StatCard label="Not opened" value={stats.email.notOpened} />

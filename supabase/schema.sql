@@ -55,6 +55,8 @@ create table if not exists email_recipients (
   last_open_at timestamptz,
   status text not null default 'pending',
   error_message text,
+  phone text,
+  follow_up_sent_at timestamptz,
   created_at timestamptz not null default now(),
   unique (campaign_id, email)
 );
@@ -72,6 +74,10 @@ create table if not exists email_events (
 );
 
 create index if not exists email_events_recipient on email_events (recipient_id, created_at desc);
+
+create index if not exists activity_events_outreach_id
+  on activity_events ((meta->>'outreach_id'))
+  where (meta->>'outreach_id') is not null;
 
 -- RLS: service role only (API uses service key). Enable if using anon client later.
 alter table sites enable row level security;

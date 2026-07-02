@@ -9,3 +9,4 @@ out/
 .agents/
 vercel-login.txt
 .cursor/
+.env*
