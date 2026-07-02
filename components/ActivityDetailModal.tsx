@@ -65,7 +65,7 @@ export default function ActivityDetailModal({ open, onClose, site, title, kind =
         <div className="flex items-start justify-between gap-3 border-b border-neutral-200 px-4 py-4">
           <div>
             <h2 className="text-lg font-bold text-neutral-900">{title}</h2>
-            <p className="text-sm text-neutral-500">Who logged in, pages visited, device & IP</p>
+            <p className="text-sm text-neutral-500">Who logged in, pages visited, device & location</p>
           </div>
           <button type="button" className="btn-outline shrink-0 px-3 py-1.5 text-sm" onClick={onClose}>
             Close
@@ -121,7 +121,7 @@ export default function ActivityDetailModal({ open, onClose, site, title, kind =
                     <dd className="text-neutral-800">{s.device}</dd>
                   </div>
                   <div>
-                    <dt className="text-xs font-medium uppercase text-neutral-400">Location (IP)</dt>
+                    <dt className="text-xs font-medium uppercase text-neutral-400">Location</dt>
                     <dd className="break-all text-neutral-800">{s.location}</dd>
                   </div>
                 </dl>
