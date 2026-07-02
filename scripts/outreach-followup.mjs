@@ -12,6 +12,10 @@ import {
 const FOLLOWUP_DELAY_MS = Number(process.env.FOLLOWUP_DELAY_MS ?? 45 * 60 * 1000);
 const DEMO_URL = process.env.DEMO_URL ?? "https://demo.workflowtech.info";
 
+function hubUrl() {
+  return (process.env.NEXT_PUBLIC_HUB_URL ?? "https://wftact.vercel.app").replace(/\/$/, "");
+}
+
 function outreachIdFromMeta(meta) {
   const id = meta?.outreach_id;
   return typeof id === "string" && id.trim() ? id.trim() : null;
@@ -52,7 +56,8 @@ export async function processFollowUps(sb, { dryRun = false, transporter = null,
       name: r.name,
       recipientId: r.id,
       demoUrl: DEMO_URL,
-      visitedDemo
+      visitedDemo,
+      hubUrl: hubUrl()
     });
     const text = buildFollowUpText({
       name: r.name,

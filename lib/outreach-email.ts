@@ -27,8 +27,10 @@ export function buildFollowUpHtml(input: {
   recipientId: string;
   demoUrl: string;
   visitedDemo: boolean;
+  hubUrl: string;
 }) {
   const link = demoLink(input.demoUrl, input.recipientId);
+  const pixel = `${input.hubUrl.replace(/\/$/, "")}/api/track/open/${input.recipientId}?kind=follow_up`;
   const body = input.visitedDemo
     ? `<p style="margin-bottom:16px">Thank you for exploring our College ERP demo.</p>
 <p style="margin-bottom:16px">We hope the student, teacher, and admin portals gave you a useful preview of day to day campus workflows.</p>
@@ -48,6 +50,7 @@ ${body}
 <p style="margin:0"><strong>Karthik</strong><br/>WorkflowTech<br/>
 <a href="mailto:karthik@workflowtech.info">karthik@workflowtech.info</a><br/>
 ${OUTREACH_PHONE}</p>
+<img src="${pixel}" width="1" height="1" alt="" style="display:block;border:0;width:1px;height:1px;opacity:0" />
 </body></html>`;
 }
 

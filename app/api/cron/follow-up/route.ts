@@ -79,7 +79,8 @@ async function runFollowUps() {
           name: r.name,
           recipientId: r.id,
           demoUrl: DEMO_URL,
-          visitedDemo
+          visitedDemo,
+          hubUrl: (process.env.NEXT_PUBLIC_HUB_URL ?? "https://wftact.vercel.app").replace(/\/$/, "")
         })
       });
       const now = new Date().toISOString();

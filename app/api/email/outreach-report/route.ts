@@ -1,7 +1,11 @@
-import { NextRequest, NextResponse } from "next/server";
-import { computeDemoEngagement } from "@/lib/outreach-analytics";
-import { getSupabaseAdmin } from "@/lib/supabase";
+import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
+import {
+  buildMailRow,
+  computeDemoEngagement,
+  type ActivityEventRow
+} from "@/lib/outreach-analytics";
+import { getSupabaseAdmin } from "@/lib/supabase";
 
 async function isAuthed() {
   const expected = process.env.WFTACT_DASHBOARD_KEY;
@@ -10,60 +14,32 @@ async function isAuthed() {
   return cookieStore.get("wftact_dashboard")?.value === expected;
 }
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   if (!(await isAuthed())) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const campaignId = request.nextUrl.searchParams.get("campaign_id");
   const sb = getSupabaseAdmin();
-
-  let recQuery = sb
-    .from("email_recipients")
-    .select("*")
-    .order("opened_at", { ascending: false, nullsFirst: false });
-
-  if (campaignId) recQuery = recQuery.eq("campaign_id", campaignId);
-
-  const [{ data: recipients, error: recErr }, { data: activity, error: actErr }] = await Promise.all([
-    recQuery,
+  const [{ data: recipients }, { data: activity }] = await Promise.all([
+    sb.from("email_recipients").select("*").order("opened_at", { ascending: false, nullsFirst: false }),
     sb.from("activity_events").select("kind, path, meta, created_at").eq("site_key", "demo")
   ]);
 
-  if (recErr) return NextResponse.json({ error: recErr.message }, { status: 500 });
-  if (actErr) return NextResponse.json({ error: actErr.message }, { status: 500 });
+  const events = (activity ?? []) as ActivityEventRow[];
+  const sent = (recipients ?? []).filter((r) => r.opened_at || (r.open_count ?? 0) > 0);
 
-  const events = activity ?? [];
-  const rows = (recipients ?? [])
-    .filter((r) => r.opened_at || (r.open_count ?? 0) > 0)
-    .map((r) => {
-      const demo = computeDemoEngagement(events, r.id);
-      return {
-        id: r.id,
-        name: r.name,
-        email: r.email,
-        institution: r.institution,
-        phone: r.phone,
-        state: r.state,
-        opened_at: r.opened_at,
-        last_open_at: r.last_open_at,
-        open_count: r.open_count ?? 0,
-        follow_up_sent_at: r.follow_up_sent_at,
-        mail_opened: true,
-        demo_visited: demo.visited,
-        page_views: demo.pageViews,
-        unique_pages: demo.uniquePages,
-        minutes_spent: demo.minutesSpent,
-        demo_first_at: demo.firstVisitAt,
-        demo_last_at: demo.lastVisitAt
-      };
-    });
+  const rows = sent.map((r, i) => {
+    const demoAll = computeDemoEngagement(events, r.id);
+    const demoAfter = computeDemoEngagement(events, r.id, r.follow_up_sent_at);
+    return buildMailRow(r, i + 1, demoAll, demoAfter);
+  });
 
-  const summary = {
-    mail_opened: rows.length,
-    demo_visited: rows.filter((r) => r.demo_visited).length,
-    follow_up_sent: rows.filter((r) => r.follow_up_sent_at).length
-  };
-
-  return NextResponse.json({ summary, rows });
+  return NextResponse.json({
+    summary: {
+      mail_opened: rows.length,
+      demo_visited: rows.filter((r) => r.demo_visited).length,
+      follow_up_sent: rows.filter((r) => r.follow_up_sent_at).length
+    },
+    rows
+  });
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import ActivityDetailModal from "@/components/ActivityDetailModal";
 import OutreachReportModal, { type OutreachRow } from "@/components/OutreachReportModal";
 import {
@@ -168,6 +169,9 @@ export default function Dashboard() {
             <p className="text-xs text-neutral-500 sm:text-sm">hub.workflowtech.info · Last 14 days</p>
           </div>
           <div className="flex gap-2">
+            <Link href="/mails" className="btn-outline flex-1 sm:flex-none px-3 py-1.5 text-sm">
+              Mails
+            </Link>
             <button className="btn-outline flex-1 sm:flex-none" type="button" onClick={() => void load()}>
               Refresh
             </button>
