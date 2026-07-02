@@ -48,8 +48,21 @@ export type ActivitySession = {
   login_at: string;
   device: string;
   location: string;
+  ip: string;
+  latitude: number | null;
+  longitude: number | null;
   pages: Array<{ path: string; at: string; kind: string }>;
 };
+
+function metaNum(meta: Record<string, unknown> | null | undefined, key: string) {
+  const v = meta?.[key];
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string" && v.trim()) {
+    const n = Number(v);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
 
 function metaStr(meta: Record<string, unknown> | null | undefined, key: string) {
   const v = meta?.[key];
@@ -83,7 +96,10 @@ export function groupActivitySessions(rows: ActivityRow[]): ActivitySession[] {
         portal: row.portal,
         login_at: row.kind === "LOGIN" ? row.created_at : row.created_at,
         device: parseDevice(metaStr(row.meta, "user_agent")),
-        location: metaStr(row.meta, "ip") ?? "—",
+        location: "—",
+        ip: metaStr(row.meta, "ip") ?? "—",
+        latitude: metaNum(row.meta, "latitude"),
+        longitude: metaNum(row.meta, "longitude"),
         pages: []
       };
       pushEvent(session, row);
@@ -108,7 +124,11 @@ function pushEvent(session: ActivitySession, row: ActivityRow) {
     session.portal = row.portal ?? session.portal;
     const ip = metaStr(row.meta, "ip");
     const ua = metaStr(row.meta, "user_agent");
-    if (ip) session.location = ip;
+    const lat = metaNum(row.meta, "latitude");
+    const lon = metaNum(row.meta, "longitude");
+    if (ip) session.ip = ip;
+    if (lat != null) session.latitude = lat;
+    if (lon != null) session.longitude = lon;
     if (ua) session.device = parseDevice(ua);
     if (row.path) {
       session.pages.push({ path: row.path, at: row.created_at, kind: row.kind });

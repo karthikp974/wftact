@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { groupActivitySessions, istDayBounds } from "@/lib/activity-utils";
-import { enrichIpLocations } from "@/lib/ip-geo";
+import { enrichSessionLocations } from "@/lib/ip-geo";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
 async function isAuthed() {
@@ -56,10 +56,21 @@ export async function GET(request: NextRequest) {
   }
 
   const sessions = groupActivitySessions(rows);
-  const ipLabels = await enrichIpLocations(sessions.map((s) => s.location));
+  const resolveLocation = await enrichSessionLocations(
+    sessions.map((s) => ({
+      ip: s.ip,
+      latitude: s.latitude,
+      longitude: s.longitude
+    }))
+  );
   for (const session of sessions) {
-    const label = ipLabels.get(session.location);
-    if (label) session.location = label;
+    const label = resolveLocation({
+      ip: session.ip,
+      latitude: session.latitude,
+      longitude: session.longitude
+    });
+    session.location = label.location;
+    session.ip = label.ip;
   }
 
   const loginCount = sessions.length;

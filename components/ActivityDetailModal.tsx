@@ -122,7 +122,10 @@ export default function ActivityDetailModal({ open, onClose, site, title, kind =
                   </div>
                   <div>
                     <dt className="text-xs font-medium uppercase text-neutral-400">Location</dt>
-                    <dd className="break-all text-neutral-800">{s.location}</dd>
+                    <dd className="text-neutral-800">{s.location}</dd>
+                    {s.ip && s.ip !== "—" ? (
+                      <dd className="mt-0.5 text-xs text-neutral-500">Network IP: {s.ip}</dd>
+                    ) : null}
                   </div>
                 </dl>
 
