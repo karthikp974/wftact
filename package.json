@@ -1,0 +1,32 @@
+{
+  "name": "wftact",
+  "version": "0.1.0",
+  "private": true,
+  "description": "WorkflowTech activity hub — KIET, demo, email outreach (Vercel + Supabase)",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "send:emails": "node scripts/send-outreach-emails.mjs",
+    "send:emails:dry": "node scripts/send-outreach-emails.mjs --dry-run",
+    "setup:schema": "node scripts/apply-schema.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.1",
+    "next": "^15.2.5",
+    "nodemailer": "^6.10.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "@types/nodemailer": "^6.4.17",
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "autoprefixer": "^10.4.21",
+    "postcss": "^8.5.3",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.8.2"
+  }
+}
