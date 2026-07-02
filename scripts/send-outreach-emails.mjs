@@ -51,7 +51,7 @@ const skipSent = args.includes("--skip-sent");
 
 const CAMPAIGN_NAME = process.env.OUTREACH_CAMPAIGN ?? "AIMS India Outreach";
 const DEMO_URL = process.env.DEMO_URL ?? "https://demo.workflowtech.info";
-const THROTTLE_MS = Number(process.env.OUTREACH_THROTTLE_MS ?? 30000);
+const THROTTLE_MS = Number(process.env.OUTREACH_THROTTLE_MS ?? 72000);
 
 function hubUrl() {
   return (process.env.NEXT_PUBLIC_HUB_URL ?? "https://wftact.vercel.app").replace(/\/$/, "");
@@ -113,6 +113,22 @@ function parseCsv(text) {
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+/** Wait until Titan quota resets (hourly/daily) then retry same contact. */
+function quotaWaitMs(message) {
+  const msg = String(message);
+  const untilMatch = msg.match(/until (\d{4}-\d{2}-\d{2}[\sT]\d{2}:\d{2}:\d{2})/i);
+  if (untilMatch) {
+    const raw = untilMatch[1].replace(" ", "T");
+    const resetAt = new Date(msg.includes("UTC") ? `${raw}Z` : raw);
+    if (!Number.isNaN(resetAt.getTime())) {
+      return Math.max(0, resetAt.getTime() - Date.now()) + 60_000;
+    }
+  }
+  if (/Hourly Quota/i.test(msg)) return 65 * 60 * 1000;
+  if (/Daily Quota/i.test(msg)) return 25 * 60 * 60 * 1000;
+  return 0;
 }
 
 async function sendOne({ sb, transporter, fromName, fromAddress, row, header, campaignId, dryRunMode }) {
@@ -270,25 +286,38 @@ async function main() {
   let failed = 0;
 
   for (const row of uniqueContacts) {
-    try {
-      await sendOne({
-        sb,
-        transporter,
-        fromName,
-        fromAddress,
-        row,
-        header,
-        campaignId: campaign.id,
-        dryRunMode: dryRun
-      });
-      sent++;
-      if (!dryRun) {
-        console.log(`Sent ${sent}/${uniqueContacts.length}: ${row[emailIdx]} — next in ${THROTTLE_MS / 1000}s`);
-        if (sent < uniqueContacts.length) await sleep(THROTTLE_MS);
+    let done = false;
+    while (!done) {
+      try {
+        await sendOne({
+          sb,
+          transporter,
+          fromName,
+          fromAddress,
+          row,
+          header,
+          campaignId: campaign.id,
+          dryRunMode: dryRun
+        });
+        sent++;
+        done = true;
+        if (!dryRun) {
+          console.log(`Sent ${sent}/${uniqueContacts.length}: ${row[emailIdx]} — next in ${THROTTLE_MS / 1000}s`);
+          if (sent < uniqueContacts.length) await sleep(THROTTLE_MS);
+        }
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        const waitMs = dryRun ? 0 : quotaWaitMs(message);
+        if (waitMs > 0) {
+          const mins = Math.ceil(waitMs / 60_000);
+          console.warn(`Quota limit — waiting ${mins} min before retry: ${row[emailIdx]}`);
+          await sleep(waitMs);
+          continue;
+        }
+        failed++;
+        console.error(`Failed ${row[emailIdx]}:`, message);
+        done = true;
       }
-    } catch (e) {
-      failed++;
-      console.error(`Failed ${row[emailIdx]}:`, e instanceof Error ? e.message : e);
     }
   }
 
