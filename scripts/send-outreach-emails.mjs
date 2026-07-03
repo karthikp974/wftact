@@ -1,18 +1,17 @@
 #!/usr/bin/env node
 /**
- * Send outreach emails via Brevo SMTP + open tracking + personalized demo links.
+ * Send outreach emails via Sender.net API or SMTP + open tracking + personalized demo links.
  */
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import nodemailer from "nodemailer";
 import { createClient } from "@supabase/supabase-js";
 import {
   OUTREACH_SUBJECT,
   buildOutreachHtml,
   buildOutreachText
 } from "./email-templates.mjs";
-import { createSmtpTransport, mailFromAddress, smtpConfigured } from "./smtp-config.mjs";
+import { createMailSender, mailConfigured, mailFromDefaults, mailProvider } from "./mail-send.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, "..");
@@ -52,7 +51,9 @@ const skipSent = args.includes("--skip-sent");
 
 const CAMPAIGN_NAME = process.env.OUTREACH_CAMPAIGN ?? "AIMS India Outreach";
 const DEMO_URL = process.env.DEMO_URL ?? "https://demo.workflowtech.info";
-const THROTTLE_MS = Number(process.env.OUTREACH_THROTTLE_MS ?? 3000);
+const THROTTLE_MS = Number(
+  process.env.OUTREACH_THROTTLE_MS ?? (process.env.SENDER_API_KEY ? 5000 : 72000)
+);
 
 function hubUrl() {
   return (process.env.NEXT_PUBLIC_HUB_URL ?? "https://wftact.vercel.app").replace(/\/$/, "");
@@ -190,15 +191,17 @@ async function sendOne({ sb, transporter, fromName, fromAddress, row, header, ca
 async function main() {
   const sbUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const sbKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const fromName = process.env.EMAIL_FROM_NAME ?? "WorkflowTech";
-  const fromAddress = mailFromAddress();
+  const { fromName, fromAddress } = mailFromDefaults();
 
   if (!sbUrl || !sbKey) throw new Error("Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY");
-  if (!dryRun && !testEmail && !smtpConfigured()) {
-    throw new Error("Set SMTP_USER + SMTP_PASS (or BREVO_API_KEY) for Brevo SMTP");
+  if (!dryRun && !testEmail && !mailConfigured()) {
+    throw new Error("Set SENDER_API_KEY or SMTP_USER + SMTP_PASS");
   }
 
   const sb = createClient(sbUrl, sbKey);
+  if (!dryRun && !testEmail) {
+    console.log(`Mail provider: ${mailProvider()}`);
+  }
 
   if (testEmail) {
     const { data: campaign, error: campErr } = await sb
@@ -208,7 +211,7 @@ async function main() {
       .single();
     if (campErr) throw campErr;
 
-    const transporter = createSmtpTransport(nodemailer);
+    const transporter = createMailSender();
 
     await sendOne({
       sb,
@@ -267,7 +270,7 @@ async function main() {
     .single();
   if (campErr) throw campErr;
 
-  const transporter = dryRun ? null : createSmtpTransport(nodemailer);
+  const transporter = dryRun ? null : createMailSender();
 
   let sent = 0;
   let failed = 0;
@@ -314,7 +317,7 @@ async function main() {
     const { watchFollowUps } = await import("./outreach-followup.mjs");
     const smtp = {
       dryRun: false,
-      transporter: createSmtpTransport(nodemailer),
+      transporter: createMailSender(),
       fromName,
       fromAddress
     };

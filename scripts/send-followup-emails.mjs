@@ -8,12 +8,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import nodemailer from "nodemailer";
 import { createClient } from "@supabase/supabase-js";
 import { processFollowUps, watchFollowUps } from "./outreach-followup.mjs";
 import { processNurture } from "./outreach-nurture.mjs";
 import { checkInboxReplies } from "./check-inbox-replies.mjs";
-import { createSmtpTransport, mailFromAddress, smtpConfigured } from "./smtp-config.mjs";
+import { createMailSender, mailConfigured, mailFromDefaults, mailProvider } from "./mail-send.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, "..");
@@ -43,16 +42,16 @@ const watch = process.argv.includes("--watch");
 async function main() {
   const sbUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const sbKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const fromName = process.env.EMAIL_FROM_NAME ?? "WorkflowTech";
-  const fromAddress = mailFromAddress();
+  const { fromName, fromAddress } = mailFromDefaults();
 
   if (!sbUrl || !sbKey) throw new Error("Missing Supabase env");
-  if (!dryRun && !smtpConfigured()) throw new Error("Missing Brevo SMTP env (SMTP_USER + SMTP_PASS or BREVO_API_KEY)");
+  if (!dryRun && !mailConfigured()) throw new Error("Set SENDER_API_KEY or SMTP_USER + SMTP_PASS");
 
   const sb = createClient(sbUrl, sbKey);
+  if (!dryRun) console.log(`Mail provider: ${mailProvider()}`);
   const smtp = {
     dryRun,
-    transporter: dryRun ? null : createSmtpTransport(nodemailer),
+    transporter: dryRun ? null : createMailSender(),
     fromName,
     fromAddress
   };
