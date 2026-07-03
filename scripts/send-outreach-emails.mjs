@@ -133,6 +133,17 @@ function quotaWaitMs(message) {
   return 0;
 }
 
+function isFatalSmtpError(message) {
+  const msg = String(message);
+  return (
+    /authentication failed/i.test(msg) ||
+    /Invalid login/i.test(msg) ||
+    /Unexpected socket close/i.test(msg) ||
+    /ECONNECTION/i.test(msg) ||
+    /ETIMEDOUT/i.test(msg)
+  );
+}
+
 async function sendOne({ sb, transporter, fromName, fromAddress, row, header, campaignId, dryRunMode }) {
   const nameIdx = header.indexOf("name");
   const emailIdx = header.indexOf("email");
@@ -306,6 +317,9 @@ async function main() {
         }
         failed++;
         console.error(`Failed ${row[emailIdx]}:`, message);
+        if (isFatalSmtpError(message)) {
+          throw new Error(`Stopping campaign — fix SMTP settings: ${message}`);
+        }
         done = true;
       }
     }

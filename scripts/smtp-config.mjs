@@ -1,17 +1,22 @@
 /** SMTP relay (Titan default). Set MAIL_PROVIDER=smtp to force SMTP over Sender API. */
 export function smtpSettings() {
-  const port = Number(process.env.SMTP_PORT ?? 465);
+  const port = Number(process.env.SMTP_PORT ?? 587);
   const host = process.env.SMTP_HOST ?? "smtp.titan.email";
-  return {
+  const base = {
     host,
     port,
-    secure: port === 465,
     auth: {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS
     },
-    ...(port === 587 ? { requireTLS: true } : {})
+    connectionTimeout: 30_000,
+    greetingTimeout: 30_000,
+    tls: { minVersion: "TLSv1.2", servername: host }
   };
+  if (port === 465) {
+    return { ...base, secure: true };
+  }
+  return { ...base, secure: false, requireTLS: true };
 }
 
 export function createSmtpTransport(nodemailer) {
