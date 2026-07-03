@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Send outreach emails via Titan SMTP + open tracking + personalized demo links.
+ * Send outreach emails via Brevo SMTP + open tracking + personalized demo links.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -12,6 +12,7 @@ import {
   buildOutreachHtml,
   buildOutreachText
 } from "./email-templates.mjs";
+import { createSmtpTransport, mailFromAddress, smtpConfigured } from "./smtp-config.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, "..");
@@ -51,7 +52,7 @@ const skipSent = args.includes("--skip-sent");
 
 const CAMPAIGN_NAME = process.env.OUTREACH_CAMPAIGN ?? "AIMS India Outreach";
 const DEMO_URL = process.env.DEMO_URL ?? "https://demo.workflowtech.info";
-const THROTTLE_MS = Number(process.env.OUTREACH_THROTTLE_MS ?? 72000);
+const THROTTLE_MS = Number(process.env.OUTREACH_THROTTLE_MS ?? 3000);
 
 function hubUrl() {
   return (process.env.NEXT_PUBLIC_HUB_URL ?? "https://wftact.vercel.app").replace(/\/$/, "");
@@ -189,15 +190,13 @@ async function sendOne({ sb, transporter, fromName, fromAddress, row, header, ca
 async function main() {
   const sbUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const sbKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const smtpHost = process.env.SMTP_HOST ?? "smtp.titan.email";
-  const smtpPort = Number(process.env.SMTP_PORT ?? 465);
-  const smtpUser = process.env.SMTP_USER;
-  const smtpPass = process.env.SMTP_PASS;
   const fromName = process.env.EMAIL_FROM_NAME ?? "WorkflowTech";
-  const fromAddress = process.env.EMAIL_FROM_ADDRESS ?? smtpUser;
+  const fromAddress = mailFromAddress();
 
   if (!sbUrl || !sbKey) throw new Error("Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY");
-  if (!dryRun && !testEmail && (!smtpUser || !smtpPass)) throw new Error("Set SMTP_USER and SMTP_PASS");
+  if (!dryRun && !testEmail && !smtpConfigured()) {
+    throw new Error("Set SMTP_USER + SMTP_PASS (or BREVO_API_KEY) for Brevo SMTP");
+  }
 
   const sb = createClient(sbUrl, sbKey);
 
@@ -209,12 +208,7 @@ async function main() {
       .single();
     if (campErr) throw campErr;
 
-    const transporter = nodemailer.createTransport({
-      host: smtpHost,
-      port: smtpPort,
-      secure: smtpPort === 465,
-      auth: { user: smtpUser, pass: smtpPass }
-    });
+    const transporter = createSmtpTransport(nodemailer);
 
     await sendOne({
       sb,
@@ -273,14 +267,7 @@ async function main() {
     .single();
   if (campErr) throw campErr;
 
-  const transporter = dryRun
-    ? null
-    : nodemailer.createTransport({
-        host: smtpHost,
-        port: smtpPort,
-        secure: smtpPort === 465,
-        auth: { user: smtpUser, pass: smtpPass }
-      });
+  const transporter = dryRun ? null : createSmtpTransport(nodemailer);
 
   let sent = 0;
   let failed = 0;
@@ -327,12 +314,7 @@ async function main() {
     const { watchFollowUps } = await import("./outreach-followup.mjs");
     const smtp = {
       dryRun: false,
-      transporter: nodemailer.createTransport({
-        host: smtpHost,
-        port: smtpPort,
-        secure: smtpPort === 465,
-        auth: { user: smtpUser, pass: smtpPass }
-      }),
+      transporter: createSmtpTransport(nodemailer),
       fromName,
       fromAddress
     };

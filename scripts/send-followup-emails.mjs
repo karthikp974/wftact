@@ -12,6 +12,8 @@ import nodemailer from "nodemailer";
 import { createClient } from "@supabase/supabase-js";
 import { processFollowUps, watchFollowUps } from "./outreach-followup.mjs";
 import { processNurture } from "./outreach-nurture.mjs";
+import { checkInboxReplies } from "./check-inbox-replies.mjs";
+import { createSmtpTransport, mailFromAddress, smtpConfigured } from "./smtp-config.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, "..");
@@ -41,27 +43,16 @@ const watch = process.argv.includes("--watch");
 async function main() {
   const sbUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const sbKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const smtpHost = process.env.SMTP_HOST ?? "smtp.titan.email";
-  const smtpPort = Number(process.env.SMTP_PORT ?? 465);
-  const smtpUser = process.env.SMTP_USER;
-  const smtpPass = process.env.SMTP_PASS;
   const fromName = process.env.EMAIL_FROM_NAME ?? "WorkflowTech";
-  const fromAddress = process.env.EMAIL_FROM_ADDRESS ?? smtpUser;
+  const fromAddress = mailFromAddress();
 
   if (!sbUrl || !sbKey) throw new Error("Missing Supabase env");
-  if (!dryRun && (!smtpUser || !smtpPass)) throw new Error("Missing SMTP env");
+  if (!dryRun && !smtpConfigured()) throw new Error("Missing Brevo SMTP env (SMTP_USER + SMTP_PASS or BREVO_API_KEY)");
 
   const sb = createClient(sbUrl, sbKey);
   const smtp = {
     dryRun,
-    transporter: dryRun
-      ? null
-      : nodemailer.createTransport({
-          host: smtpHost,
-          port: smtpPort,
-          secure: smtpPort === 465,
-          auth: { user: smtpUser, pass: smtpPass }
-        }),
+    transporter: dryRun ? null : createSmtpTransport(nodemailer),
     fromName,
     fromAddress
   };
@@ -73,9 +64,14 @@ async function main() {
 
   const result = await processFollowUps(sb, smtp);
   const nurture = await processNurture(sb, smtp);
+  const replies = await checkInboxReplies(sb).catch((e) => {
+    console.error("Inbox check skipped:", e instanceof Error ? e.message : e);
+    return { paused: 0 };
+  });
   const parts = [];
   if (result.sent) parts.push(`Follow ups sent: ${result.sent}`);
   if (nurture.sent) parts.push(`Nurture sent: ${nurture.sent}`);
+  if (replies.paused) parts.push(`Paused (reply): ${replies.paused}`);
   console.log(parts.length ? parts.join(" · ") : "No follow ups or nurture due");
 }
 

@@ -36,13 +36,13 @@ function emailFromAddress(raw) {
 }
 
 export async function checkInboxReplies(sb) {
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASS;
+  const user = process.env.IMAP_USER ?? process.env.TITAN_SMTP_USER ?? "karthik@workflowtech.info";
+  const pass = process.env.IMAP_PASS ?? process.env.TITAN_SMTP_PASS;
   const host = process.env.IMAP_HOST ?? "imap.titan.email";
   const port = Number(process.env.IMAP_PORT ?? 993);
 
-  if (!user || !pass) {
-    return { paused: 0, skipped: "missing SMTP credentials" };
+  if (!pass) {
+    return { paused: 0, skipped: "missing IMAP_PASS / TITAN_SMTP_PASS for reply inbox" };
   }
 
   const { data: recipients, error } = await sb
