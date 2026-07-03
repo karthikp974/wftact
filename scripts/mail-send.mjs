@@ -7,8 +7,15 @@ import { createSmtpTransport, smtpConfigured } from "./smtp-config.mjs";
 
 const SENDER_API_URL = "https://api.sender.net/v2/message/send";
 
+function useSenderApi() {
+  const mode = process.env.MAIL_PROVIDER?.trim().toLowerCase();
+  if (mode === "smtp" || mode === "titan") return false;
+  if (mode === "sender") return Boolean(process.env.SENDER_API_KEY?.trim());
+  return Boolean(process.env.SENDER_API_KEY?.trim());
+}
+
 export function mailProvider() {
-  if (process.env.SENDER_API_KEY?.trim()) return "sender-api";
+  if (useSenderApi()) return "sender-api";
   if (smtpConfigured()) return "smtp";
   return null;
 }
@@ -66,7 +73,7 @@ async function sendViaSenderApi({ from, to, subject, text, html }) {
 
 /** Nodemailer-compatible sender for outreach-followup / nurture scripts. */
 export function createMailSender() {
-  if (process.env.SENDER_API_KEY?.trim()) {
+  if (useSenderApi()) {
     return {
       sendMail: (opts) =>
         sendViaSenderApi({

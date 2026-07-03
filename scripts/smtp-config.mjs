@@ -1,7 +1,7 @@
-/** SMTP relay (Brevo, Titan, or Sender SMTP user). Reply inbox uses Titan IMAP separately. */
+/** SMTP relay (Titan default). Set MAIL_PROVIDER=smtp to force SMTP over Sender API. */
 export function smtpSettings() {
-  const port = Number(process.env.SMTP_PORT ?? 587);
-  const host = process.env.SMTP_HOST ?? "smtp.sender.net";
+  const port = Number(process.env.SMTP_PORT ?? 465);
+  const host = process.env.SMTP_HOST ?? "smtp.titan.email";
   return {
     host,
     port,
